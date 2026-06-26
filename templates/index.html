@@ -394,7 +394,7 @@
                             },
                         },
                     ],
-                    layout: { name: "preset" },
+                    layout: { name: "preset", fit: false },
                 });
 
                 // Run force layout only on nodes that don't have a remembered position yet
@@ -412,6 +412,28 @@
                 cy.on("dragfree", "node", (evt) => {
                     savePosition(evt.target.id(), evt.target.position());
                 });
+
+                cy.on("pan zoom", () => {
+                    try {
+                        localStorage.setItem(
+                            "viewState",
+                            JSON.stringify({ pan: cy.pan(), zoom: cy.zoom() }),
+                        );
+                    } catch (e) {}
+                });
+
+                // Restore prior pan/zoom instead of letting Cytoscape auto-fit
+                try {
+                    const viewState = JSON.parse(
+                        localStorage.getItem("viewState"),
+                    );
+                    if (viewState) {
+                        cy.viewport({
+                            pan: viewState.pan,
+                            zoom: viewState.zoom,
+                        });
+                    }
+                } catch (e) {}
 
                 cy.on("tap", "node", (evt) => {
                     const node = evt.target;
