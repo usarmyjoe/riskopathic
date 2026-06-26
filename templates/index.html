@@ -149,7 +149,39 @@
             <button id="connectBtn">Connect Nodes</button>
             <button id="deleteBtn">Delete Selected</button>
             <button id="refreshBtn">Refresh</button>
-            <span class="hint" id="hintText"
+            <button id="arrangeBtn">Auto-Arrange</button>
+            <span
+                id="statusIndicator"
+                style="
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    font-size: 12px;
+                    color: #999;
+                    flex-shrink: 0;
+                    white-space: nowrap;
+                "
+            >
+                <span
+                    id="statusDot"
+                    style="
+                        width: 8px;
+                        height: 8px;
+                        border-radius: 50%;
+                        background: #888;
+                        flex-shrink: 0;
+                    "
+                ></span>
+                <span id="statusText">Checking...</span>
+            </span>
+            <span
+                class="hint"
+                id="hintText"
+                style="
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                    white-space: nowrap;
+                "
                 >Click "+ Add Node" to place a node, or click "Connect Nodes"
                 then click two nodes in order to link them.</span
             >
@@ -207,35 +239,81 @@
             let connectSource = null;
             let editingNodeId = null;
 
-            const colorPalette = [
-                "#5b8def",
-                "#e0944a",
-                "#7fbf7f",
-                "#d96b6b",
-                "#b07fd9",
-                "#5bc8d9",
-                "#d9c95b",
-            ];
+            // ---- Visual config: tweak appearance here without digging through style code ----
+            const CONFIG = {
+                nodeColors: [
+                    "#5b8def",
+                    "#e0944a",
+                    "#7fbf7f",
+                    "#d96b6b",
+                    "#b07fd9",
+                    "#5bc8d9",
+                    "#d9c95b",
+                ],
+                nodeSize: 50,
+                nodeFontSize: 11,
+                nodeBorderWidth: 2,
+                nodeBorderColor: "#1e1e1e",
+                nodeSelectedBorderColor: "#fff",
+                nodeSelectedBorderWidth: 3,
+
+                edgeWidth: 2,
+                edgeColor: "#777",
+                edgeSelectedColor: "#fff",
+                edgeFontSize: 10,
+                edgeLabelColor: "#ccc",
+                edgeLabelOffsetY: -10, // negative = above the line
+                edgeLabelBackground: "#1e1e1e",
+                edgeLabelBackgroundOpacity: 0.85,
+
+                layout: "cose", // try "circle", "grid", "concentric", "breadthfirst" too
+            };
+
+            function savePosition(nodeId, position) {
+                try {
+                    const positions = JSON.parse(
+                        localStorage.getItem("nodePositions") || "{}",
+                    );
+                    positions[nodeId] = position;
+                    localStorage.setItem(
+                        "nodePositions",
+                        JSON.stringify(positions),
+                    );
+                } catch (e) {
+                    console.error("Failed to save position", e);
+                }
+            }
+
             const labelColors = {};
             function colorForLabel(label) {
                 if (!labelColors[label]) {
                     labelColors[label] =
-                        colorPalette[
+                        CONFIG.nodeColors[
                             Object.keys(labelColors).length %
-                                colorPalette.length
+                                CONFIG.nodeColors.length
                         ];
                 }
                 return labelColors[label];
             }
 
             async function loadGraph() {
+                // Pull saved positions from localStorage (survives refresh) instead of just in-memory
+                let savedPositions = {};
+                try {
+                    savedPositions = JSON.parse(
+                        localStorage.getItem("nodePositions") || "{}",
+                    );
+                } catch (e) {
+                    savedPositions = {};
+                }
+
                 const res = await fetch("/api/graph");
                 const data = await res.json();
                 const elements = [];
 
                 data.nodes.forEach((n) => {
                     const label = n.labels[0] || "Node";
-                    elements.push({
+                    const nodeData = {
                         data: {
                             id: n.id,
                             label: label,
@@ -243,7 +321,11 @@
                             displayLabel:
                                 n.props.name || n.props.title || label,
                         },
-                    });
+                    };
+                    if (savedPositions[n.id]) {
+                        nodeData.position = savedPositions[n.id];
+                    }
+                    elements.push(nodeData);
                 });
 
                 data.relationships.forEach((r) => {
@@ -271,43 +353,64 @@
                                 color: "#fff",
                                 "text-valign": "center",
                                 "text-halign": "center",
-                                "font-size": "11px",
-                                width: 50,
-                                height: 50,
-                                "border-width": 2,
-                                "border-color": "#1e1e1e",
+                                "font-size": CONFIG.nodeFontSize,
+                                width: CONFIG.nodeSize,
+                                height: CONFIG.nodeSize,
+                                "border-width": CONFIG.nodeBorderWidth,
+                                "border-color": CONFIG.nodeBorderColor,
                             },
                         },
                         {
                             selector: "node:selected",
                             style: {
-                                "border-color": "#fff",
-                                "border-width": 3,
+                                "border-color": CONFIG.nodeSelectedBorderColor,
+                                "border-width": CONFIG.nodeSelectedBorderWidth,
                             },
                         },
                         {
                             selector: "edge",
                             style: {
-                                width: 2,
-                                "line-color": "#777",
-                                "target-arrow-color": "#777",
+                                width: CONFIG.edgeWidth,
+                                "line-color": CONFIG.edgeColor,
+                                "target-arrow-color": CONFIG.edgeColor,
                                 "target-arrow-shape": "triangle",
                                 "curve-style": "bezier",
                                 label: "data(relType)",
-                                "font-size": "9px",
-                                color: "#aaa",
-                                "text-rotation": "autorotate",
+                                "font-size": CONFIG.edgeFontSize,
+                                color: CONFIG.edgeLabelColor,
+                                "text-background-color":
+                                    CONFIG.edgeLabelBackground,
+                                "text-background-opacity":
+                                    CONFIG.edgeLabelBackgroundOpacity,
+                                "text-background-padding": "2px",
+                                "text-margin-y": CONFIG.edgeLabelOffsetY,
                             },
                         },
                         {
                             selector: "edge:selected",
                             style: {
-                                "line-color": "#fff",
-                                "target-arrow-color": "#fff",
+                                "line-color": CONFIG.edgeSelectedColor,
+                                "target-arrow-color": CONFIG.edgeSelectedColor,
                             },
                         },
                     ],
-                    layout: { name: "cose", animate: false },
+                    layout: { name: "preset" },
+                });
+
+                // Run force layout only on nodes that don't have a remembered position yet
+                const newNodes = cy
+                    .nodes()
+                    .filter((n) => !savedPositions[n.id()]);
+                if (newNodes.length > 0) {
+                    cy.layout({
+                        name: CONFIG.layout,
+                        animate: false,
+                        fit: false,
+                    }).run();
+                }
+
+                cy.on("dragfree", "node", (evt) => {
+                    savePosition(evt.target.id(), evt.target.position());
                 });
 
                 cy.on("tap", "node", (evt) => {
@@ -357,6 +460,20 @@
             };
 
             document.getElementById("refreshBtn").onclick = loadGraph;
+
+            document.getElementById("arrangeBtn").onclick = () => {
+                const layout = cy.layout({
+                    name: CONFIG.layout,
+                    animate: true,
+                    fit: true,
+                });
+                layout.on("layoutstop", () => {
+                    cy.nodes().forEach((n) =>
+                        savePosition(n.id(), n.position()),
+                    );
+                });
+                layout.run();
+            };
 
             document.getElementById("deleteBtn").onclick = async () => {
                 const selected = cy.elements(":selected");
@@ -491,7 +608,28 @@
                 loadGraph();
             };
 
+            async function checkHealth() {
+                const dot = document.getElementById("statusDot");
+                const text = document.getElementById("statusText");
+                try {
+                    const res = await fetch("/api/health");
+                    const data = await res.json();
+                    if (data.connected) {
+                        dot.style.background = "#7fbf7f";
+                        text.textContent = "Connected to Neo4j";
+                    } else {
+                        dot.style.background = "#d96b6b";
+                        text.textContent = "Disconnected";
+                    }
+                } catch (e) {
+                    dot.style.background = "#d96b6b";
+                    text.textContent = "Disconnected";
+                }
+            }
+
             loadGraph();
+            checkHealth();
+            setInterval(checkHealth, 15000);
         </script>
     </body>
 </html>
