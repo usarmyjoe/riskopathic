@@ -1,0 +1,35 @@
+version: "3.8"
+
+services:
+  neo4j:
+    image: neo4j:2026-community
+    container_name: neo4j
+    ports:
+      - "7474:7474" # Browser / HTTP
+      - "7687:7687" # Bolt
+    environment:
+      - NEO4J_AUTH=neo4j/changeme123
+    volumes:
+      - neo4j-data:/data
+    networks:
+      - graphnet
+    restart: unless-stopped
+
+  neodash:
+    image: neo4jlabs/neodash:latest
+    container_name: neodash
+    ports:
+      - "5005:5005"
+    depends_on:
+      - neo4j
+    networks:
+      - graphnet
+    restart: unless-stopped
+
+networks:
+  graphnet:
+    driver: bridge
+
+volumes:
+  neo4j-data:
+    name: neo4j-data
