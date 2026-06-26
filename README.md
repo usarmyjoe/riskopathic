@@ -3,13 +3,13 @@
 
 This is really a simple frontend for visual creation and editing of graph nodes and edges. My use case is for assets and cyber risk, but it is easily customized for any data.
 
-Great for:
+**Great for:**
 Single-user
 Creating/Editing/Removing a small amount of nodes and relationships manually
 A visual validation of data in Neo4j
 Simple graph CRUD operations
 
-Not great for:
+**Not great for:**
 Multi-User/Concurrency
 Operations on multiple nodes/edges
 Querying data
