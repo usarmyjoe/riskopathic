@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="UTF-8" />
+        <title>Graph Editor</title>
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/cytoscape/3.28.1/cytoscape.min.js"></script>
+        <style>
+            html,
+            body {
+                margin: 0;
+                padding: 0;
+                height: 100%;
+                font-family:
+                    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                    sans-serif;
+                background: #1e1e1e;
+                color: #e0e0e0;
+            }
+            #toolbar {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                height: 56px;
+                background: #2a2a2a;
+                border-bottom: 1px solid #3a3a3a;
+                display: flex;
+                align-items: center;
+                padding: 0 16px;
+                gap: 12px;
+                z-index: 10;
+            }
+            #toolbar button {
+                background: #3a3a3a;
+                color: #e0e0e0;
+                border: 1px solid #4a4a4a;
+                padding: 8px 14px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            #toolbar button:hover {
+                background: #4a4a4a;
+            }
+            #toolbar button.active {
+                background: #5b8def;
+                border-color: #5b8def;
+            }
+            #toolbar .hint {
+                font-size: 12px;
+                color: #999;
+                margin-left: auto;
+            }
+            #cy {
+                position: absolute;
+                top: 56px;
+                left: 0;
+                right: 0;
+                bottom: 0;
+            }
+            .modal-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background: rgba(0, 0, 0, 0.6);
+                z-index: 100;
+                align-items: center;
+                justify-content: center;
+            }
+            .modal-overlay.show {
+                display: flex;
+            }
+            .modal {
+                background: #2a2a2a;
+                border: 1px solid #4a4a4a;
+                border-radius: 8px;
+                padding: 20px;
+                width: 360px;
+            }
+            .modal h3 {
+                margin: 0 0 14px 0;
+                font-size: 15px;
+            }
+            .modal label {
+                display: block;
+                font-size: 12px;
+                color: #aaa;
+                margin-top: 10px;
+                margin-bottom: 4px;
+            }
+            .modal input,
+            .modal select {
+                width: 100%;
+                box-sizing: border-box;
+                background: #1e1e1e;
+                border: 1px solid #4a4a4a;
+                color: #e0e0e0;
+                padding: 7px 8px;
+                border-radius: 4px;
+                font-size: 13px;
+            }
+            .modal-buttons {
+                margin-top: 18px;
+                display: flex;
+                justify-content: flex-end;
+                gap: 8px;
+            }
+            .modal-buttons button {
+                background: #3a3a3a;
+                color: #e0e0e0;
+                border: 1px solid #4a4a4a;
+                padding: 7px 14px;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 13px;
+            }
+            .modal-buttons button.primary {
+                background: #5b8def;
+                border-color: #5b8def;
+            }
+            .modal-buttons button.danger {
+                background: #d9534f;
+                border-color: #d9534f;
+            }
+            #propRows .prop-row {
+                display: flex;
+                gap: 6px;
+                margin-top: 6px;
+            }
+            #propRows .prop-row input {
+                width: 50%;
+            }
+            #propRows .prop-row button {
+                background: #3a3a3a;
+                border: 1px solid #4a4a4a;
+                color: #e0e0e0;
+                border-radius: 4px;
+                cursor: pointer;
+                width: 28px;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="toolbar">
+            <button id="addNodeBtn">+ Add Node</button>
+            <button id="connectBtn">Connect Nodes</button>
+            <button id="deleteBtn">Delete Selected</button>
+            <button id="refreshBtn">Refresh</button>
+            <span class="hint" id="hintText"
+                >Click "+ Add Node" to place a node, or click "Connect Nodes"
+                then click two nodes in order to link them.</span
+            >
+        </div>
+
+        <div id="cy"></div>
+
+        <!-- Node create/edit modal -->
+        <div class="modal-overlay" id="nodeModal">
+            <div class="modal">
+                <h3 id="nodeModalTitle">New Node</h3>
+                <label>Label (type)</label>
+                <input
+                    type="text"
+                    id="nodeLabelInput"
+                    placeholder="e.g. Asset, Vulnerability, ThreatActor"
+                />
+                <label>Properties</label>
+                <div id="propRows"></div>
+                <div class="modal-buttons">
+                    <button id="addPropBtn">+ property</button>
+                    <button id="nodeCancelBtn">Cancel</button>
+                    <button
+                        id="nodeDeleteBtn"
+                        class="danger"
+                        style="display: none"
+                    >
+                        Delete
+                    </button>
+                    <button id="nodeSaveBtn" class="primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Relationship create modal -->
+        <div class="modal-overlay" id="relModal">
+            <div class="modal">
+                <h3>New Relationship</h3>
+                <label>Type</label>
+                <input
+                    type="text"
+                    id="relTypeInput"
+                    placeholder="e.g. DEPENDS_ON, EXPOSES, MITIGATES"
+                />
+                <div class="modal-buttons">
+                    <button id="relCancelBtn">Cancel</button>
+                    <button id="relSaveBtn" class="primary">Save</button>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            let cy;
+            let connectMode = false;
+            let connectSource = null;
+            let editingNodeId = null;
+
+            const colorPalette = [
+                "#5b8def",
+                "#e0944a",
+                "#7fbf7f",
+                "#d96b6b",
+                "#b07fd9",
+                "#5bc8d9",
+                "#d9c95b",
+            ];
+            const labelColors = {};
+            function colorForLabel(label) {
+                if (!labelColors[label]) {
+                    labelColors[label] =
+                        colorPalette[
+                            Object.keys(labelColors).length %
+                                colorPalette.length
+                        ];
+                }
+                return labelColors[label];
+            }
+
+            async function loadGraph() {
+                const res = await fetch("/api/graph");
+                const data = await res.json();
+                const elements = [];
+
+                data.nodes.forEach((n) => {
+                    const label = n.labels[0] || "Node";
+                    elements.push({
+                        data: {
+                            id: n.id,
+                            label: label,
+                            props: n.props,
+                            displayLabel:
+                                n.props.name || n.props.title || label,
+                        },
+                    });
+                });
+
+                data.relationships.forEach((r) => {
+                    elements.push({
+                        data: {
+                            id: r.id,
+                            source: r.source,
+                            target: r.target,
+                            relType: r.type,
+                        },
+                    });
+                });
+
+                if (cy) cy.destroy();
+                cy = cytoscape({
+                    container: document.getElementById("cy"),
+                    elements: elements,
+                    style: [
+                        {
+                            selector: "node",
+                            style: {
+                                "background-color": (ele) =>
+                                    colorForLabel(ele.data("label")),
+                                label: "data(displayLabel)",
+                                color: "#fff",
+                                "text-valign": "center",
+                                "text-halign": "center",
+                                "font-size": "11px",
+                                width: 50,
+                                height: 50,
+                                "border-width": 2,
+                                "border-color": "#1e1e1e",
+                            },
+                        },
+                        {
+                            selector: "node:selected",
+                            style: {
+                                "border-color": "#fff",
+                                "border-width": 3,
+                            },
+                        },
+                        {
+                            selector: "edge",
+                            style: {
+                                width: 2,
+                                "line-color": "#777",
+                                "target-arrow-color": "#777",
+                                "target-arrow-shape": "triangle",
+                                "curve-style": "bezier",
+                                label: "data(relType)",
+                                "font-size": "9px",
+                                color: "#aaa",
+                                "text-rotation": "autorotate",
+                            },
+                        },
+                        {
+                            selector: "edge:selected",
+                            style: {
+                                "line-color": "#fff",
+                                "target-arrow-color": "#fff",
+                            },
+                        },
+                    ],
+                    layout: { name: "cose", animate: false },
+                });
+
+                cy.on("tap", "node", (evt) => {
+                    const node = evt.target;
+                    if (connectMode) {
+                        if (!connectSource) {
+                            connectSource = node.id();
+                            node.select();
+                        } else if (connectSource !== node.id()) {
+                            openRelModal(connectSource, node.id());
+                            connectSource = null;
+                            exitConnectMode();
+                        }
+                    }
+                });
+
+                cy.on("dblclick", "node", (evt) => {
+                    if (!connectMode) openNodeModal(evt.target);
+                });
+
+                cy.on("tap", (evt) => {
+                    if (evt.target === cy && !connectMode) {
+                        // click on empty canvas: place a new node here
+                        openNodeModal(null, evt.position);
+                    }
+                });
+            }
+
+            function exitConnectMode() {
+                connectMode = false;
+                document
+                    .getElementById("connectBtn")
+                    .classList.remove("active");
+                document.getElementById("hintText").textContent =
+                    'Click "+ Add Node" to place a node, or click "Connect Nodes" then click two nodes in order to link them.';
+            }
+
+            document.getElementById("connectBtn").onclick = () => {
+                connectMode = !connectMode;
+                connectSource = null;
+                document
+                    .getElementById("connectBtn")
+                    .classList.toggle("active", connectMode);
+                document.getElementById("hintText").textContent = connectMode
+                    ? "Click a source node, then a target node."
+                    : 'Click "+ Add Node" to place a node, or click "Connect Nodes" then click two nodes in order to link them.';
+            };
+
+            document.getElementById("refreshBtn").onclick = loadGraph;
+
+            document.getElementById("deleteBtn").onclick = async () => {
+                const selected = cy.elements(":selected");
+                for (const ele of selected) {
+                    if (ele.isNode()) {
+                        await fetch("/api/node/" + ele.id(), {
+                            method: "DELETE",
+                        });
+                    } else {
+                        await fetch("/api/relationship/" + ele.id(), {
+                            method: "DELETE",
+                        });
+                    }
+                }
+                loadGraph();
+            };
+
+            document.getElementById("addNodeBtn").onclick = () =>
+                openNodeModal(null);
+
+            // ---- Node modal ----
+            function openNodeModal(node, position) {
+                editingNodeId = node ? node.id() : null;
+                document.getElementById("nodeModalTitle").textContent = node
+                    ? "Edit Node"
+                    : "New Node";
+                document.getElementById("nodeLabelInput").value = node
+                    ? node.data("label")
+                    : "";
+                document.getElementById("nodeDeleteBtn").style.display = node
+                    ? "inline-block"
+                    : "none";
+
+                const propRows = document.getElementById("propRows");
+                propRows.innerHTML = "";
+                const props = node ? node.data("props") : {};
+                Object.entries(props).forEach(([k, v]) => addPropRow(k, v));
+                if (!node || Object.keys(props).length === 0)
+                    addPropRow("name", "");
+
+                document.getElementById("nodeModal").dataset.position = position
+                    ? JSON.stringify(position)
+                    : "";
+                document.getElementById("nodeModal").classList.add("show");
+            }
+
+            function addPropRow(key = "", value = "") {
+                const row = document.createElement("div");
+                row.className = "prop-row";
+                row.innerHTML = `
+    <input type="text" class="prop-key" placeholder="key" value="${key}">
+    <input type="text" class="prop-value" placeholder="value" value="${value}">
+    <button type="button" onclick="this.parentElement.remove()">×</button>
+  `;
+                document.getElementById("propRows").appendChild(row);
+            }
+            document.getElementById("addPropBtn").onclick = () => addPropRow();
+
+            document.getElementById("nodeCancelBtn").onclick = () => {
+                document.getElementById("nodeModal").classList.remove("show");
+            };
+
+            document.getElementById("nodeDeleteBtn").onclick = async () => {
+                if (editingNodeId) {
+                    await fetch("/api/node/" + editingNodeId, {
+                        method: "DELETE",
+                    });
+                    document
+                        .getElementById("nodeModal")
+                        .classList.remove("show");
+                    loadGraph();
+                }
+            };
+
+            document.getElementById("nodeSaveBtn").onclick = async () => {
+                const label =
+                    document.getElementById("nodeLabelInput").value.trim() ||
+                    "Node";
+                const properties = {};
+                document
+                    .querySelectorAll("#propRows .prop-row")
+                    .forEach((row) => {
+                        const k = row.querySelector(".prop-key").value.trim();
+                        const v = row.querySelector(".prop-value").value.trim();
+                        if (k) properties[k] = v;
+                    });
+
+                if (editingNodeId) {
+                    await fetch("/api/node/" + editingNodeId, {
+                        method: "PUT",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ properties }),
+                    });
+                } else {
+                    await fetch("/api/node", {
+                        method: "POST",
+                        headers: { "Content-Type": "application/json" },
+                        body: JSON.stringify({ label, properties }),
+                    });
+                }
+                document.getElementById("nodeModal").classList.remove("show");
+                loadGraph();
+            };
+
+            // ---- Relationship modal ----
+            let pendingRel = null;
+            function openRelModal(sourceId, targetId) {
+                pendingRel = { source: sourceId, target: targetId };
+                document.getElementById("relTypeInput").value = "";
+                document.getElementById("relModal").classList.add("show");
+            }
+
+            document.getElementById("relCancelBtn").onclick = () => {
+                document.getElementById("relModal").classList.remove("show");
+            };
+
+            document.getElementById("relSaveBtn").onclick = async () => {
+                const type =
+                    document.getElementById("relTypeInput").value.trim() ||
+                    "RELATED_TO";
+                await fetch("/api/relationship", {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                        source: pendingRel.source,
+                        target: pendingRel.target,
+                        type,
+                        properties: {},
+                    }),
+                });
+                document.getElementById("relModal").classList.remove("show");
+                loadGraph();
+            };
+
+            loadGraph();
+        </script>
+    </body>
+</html>
