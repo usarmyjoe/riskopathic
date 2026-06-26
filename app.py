@@ -5,9 +5,23 @@ from neo4j import GraphDatabase
 
 app = Flask(__name__)
 
-NEO4J_URI = os.environ.get("NEO4J_URI", "bolt://neo4j:7687")
-NEO4J_USER = os.environ.get("NEO4J_USER", "neo4j")
-NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD", "changeme123")
+NEO4J_URI = os.environ.get("NEO4J_URI")
+NEO4J_USER = os.environ.get("NEO4J_USER")
+NEO4J_PASSWORD = os.environ.get("NEO4J_PASSWORD")
+
+missing = [
+    name
+    for name, val in [
+        ("NEO4J_URI", NEO4J_URI),
+        ("NEO4J_USER", NEO4J_USER),
+        ("NEO4J_PASSWORD", NEO4J_PASSWORD),
+    ]
+    if not val
+]
+if missing:
+    raise RuntimeError(
+        f"Missing required environment variable(s): {', '.join(missing)}"
+    )
 
 driver = GraphDatabase.driver(NEO4J_URI, auth=(NEO4J_USER, NEO4J_PASSWORD))
 
@@ -119,6 +133,16 @@ def delete_relationship(rel_id):
     """
     run_query(query, {"rel_id": rel_id})
     return jsonify({"deleted": rel_id})
+
+
+@app.route("/api/health", methods=["GET"])
+def health():
+    """Check Neo4j connectivity."""
+    try:
+        run_query("RETURN 1")
+        return jsonify({"connected": True})
+    except Exception as e:
+        return jsonify({"connected": False, "error": str(e)}), 503
 
 
 @app.route("/api/labels", methods=["GET"])
