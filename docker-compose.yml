@@ -1,50 +1,20 @@
 version: "3.8"
 
 services:
-  neo4j:
-    image: neo4j:2026-community
-    container_name: neo4j
-    ports:
-      - "7474:7474" # Browser / HTTP
-      - "7687:7687" # Bolt
-    environment:
-      - NEO4J_AUTH=neo4j/changeme123
-    volumes:
-      - neo4j-data:/data
-    networks:
-      - graphnet
-    restart: unless-stopped
-
-  neodash:
-    image: neo4jlabs/neodash:latest
-    container_name: neodash
-    ports:
-      - "5005:5005"
-    depends_on:
-      - neo4j
-    networks:
-      - graphnet
-    restart: unless-stopped
-
-  graph-app:
-    build: ./graph-app
-    container_name: graph-app
+  riskopathic:
+    build: .
+    container_name: riskopathic
     ports:
       - "8080:8080"
     environment:
       - NEO4J_URI=bolt://neo4j:7687
       - NEO4J_USER=neo4j
       - NEO4J_PASSWORD=changeme123
-    depends_on:
-      - neo4j
     networks:
       - graphnet
     restart: unless-stopped
 
 networks:
   graphnet:
-    driver: bridge
-
-volumes:
-  neo4j-data:
-    name: neo4j-data
+    external: true
+    name: graphnet
